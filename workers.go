@@ -52,28 +52,21 @@ func (w *workerStack) Expiry(t time.Time) []*worker {
 	}
 
 	i := w.BinarySearch(0, il-1, t)
-	w.expires = append(w.expires, w.items[:i]...)
-	copy(w.items, w.items[i:])
-	for n := i; n < il; n++ {
-		w.items[n] = nil
+	if i != -1 {
+		w.expires = append(w.expires, w.items[:i+1]...)
+		copy(w.items, w.items[i+1:])
+		for n := i; n < il; n++ {
+			w.items[n] = nil
+		}
+		w.items = w.items[:i]
 	}
-	w.items = w.items[:i]
 
 	return w.expires
 }
 
 func (w *workerStack) BinarySearch(l, r int, t time.Time) int {
-	li := w.items[l]
-	ri := w.items[r]
-	if li.expireTime.After(t) {
-		return l
-	}
-	if ri.expireTime.Before(t) {
-		return r
-	}
-
 	var mid int
-	for r > l {
+	for l <= r {
 		mid = (r-l)/2 + l
 		mi := w.items[mid]
 		if mi.expireTime.Before(t) {
@@ -82,7 +75,8 @@ func (w *workerStack) BinarySearch(l, r int, t time.Time) int {
 		if mi.expireTime.After(t) {
 			r = mid - 1
 		}
+		return mid
 	}
 
-	return l
+	return -1
 }

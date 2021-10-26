@@ -50,6 +50,8 @@ func (w *worker) Run() {
 		}()
 
 		for task := range w.ch {
+			w.pool.config.Logger.Debugf("[PPool:worker]: worker running")
+
 			if task == nil {
 				return
 			}
