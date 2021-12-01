@@ -9,11 +9,6 @@ import (
 	"github.com/yongpi/putil/plog"
 )
 
-type Logger interface {
-	Debugf(format string, args ...interface{})
-	Errorf(format string, args ...interface{})
-}
-
 type defaultLogger struct {
 }
 
@@ -25,6 +20,14 @@ func (d *defaultLogger) Errorf(format string, args ...interface{}) {
 	plog.Errorf(format, args...)
 }
 
+type DefaultFeature struct {
+	ch chan interface{}
+}
+
+func (f *DefaultFeature) Get() interface{} {
+	return <-f.ch
+}
+
 type Options struct {
 	MaxBlockingNum      int32
 	WorkerCleanDuration time.Duration
@@ -33,16 +36,17 @@ type Options struct {
 }
 
 type PPool struct {
-	core        int32
-	max         int32
-	state       int32
-	running     int32
-	lock        sync.Locker
-	cond        *sync.Cond
-	blocking    int32
-	workerCache *sync.Pool
-	workers     Workers
-	config      *Options
+	core         int32
+	max          int32
+	state        int32
+	running      int32
+	lock         sync.Locker
+	cond         *sync.Cond
+	blocking     int32
+	workerCache  *sync.Pool
+	workers      Workers
+	config       *Options
+	featureCache *sync.Pool
 }
 
 func NewPPool(core, max uint32, options ...Option) *PPool {
@@ -65,6 +69,12 @@ func NewPPool(core, max uint32, options ...Option) *PPool {
 	pool.workerCache = &sync.Pool{
 		New: func() interface{} {
 			return NewWorker(pool)
+		},
+	}
+
+	pool.featureCache = &sync.Pool{
+		New: func() interface{} {
+			return new(DefaultFeature)
 		},
 	}
 
@@ -245,4 +255,32 @@ func (p *PPool) addWorker(w *worker) bool {
 
 	p.config.Logger.Debugf("[PPool:addWorker]: add worker")
 	return true
+}
+
+func (p *PPool) Travel(ship Spaceship) (Feature, error) {
+	return p.travelFeature(ship)
+}
+
+func (p *PPool) travelFeature(ship Spaceship) (*DefaultFeature, error) {
+	feature := p.featureCache.Get().(*DefaultFeature)
+	err := p.Submit(func() {
+		defer func() {
+			if err := recover(); err != nil {
+				close(feature.ch)
+				// 也可以 Logger，但是最好 panic 一下，虽然会导致 worker 退出，但是会把堆栈信息打印出来
+				panic(err)
+			}
+		}()
+
+		feature.ch <- ship()
+	})
+	return feature, err
+}
+
+func (p *PPool) TravelSafe(ship Spaceship) Feature {
+	feature, err := p.travelFeature(ship)
+	if err != nil && feature != nil {
+		close(feature.ch)
+	}
+	return feature
 }
